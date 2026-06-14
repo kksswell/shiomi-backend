@@ -20,7 +20,29 @@ const dbConfig = {
     connectionLimit: 10,
     queueLimit: 0
 };
-const pool = mysql.createPool(dbConfig); // ВОТ ОНО!
+const pool = mysql.createPool(dbConfig);
+
+// ================= ОНЛАЙН СЕРВЕРА =================
+let serverCache = { players: 0, maxPlayers: 32 };
+
+async function updateLiveOnline() {
+    try {
+        const state = await Gamedig.query({
+            type: 'csgo', 
+            host: '170.168.115.48',
+            port: 27115,
+            socketTimeout: 5000
+        });
+        serverCache.players = state.players.length;
+        serverCache.maxPlayers = state.maxplayers || 32;
+    } catch (error) {
+        console.error('[GameDig] Ошибка опроса:', error.message);
+        serverCache.players = 0;
+    }
+}
+// Запускаем опрос при старте и каждые 30 секунд
+updateLiveOnline();
+setInterval(updateLiveOnline, 30000);
 
 // ================= MIDDLEWARE =================
 app.use(cors({ origin: process.env.FRONTEND_URL || 'https://shiomi.onrender.com', credentials: true }));
@@ -33,7 +55,6 @@ app.use(session({
     cookie: { maxAge: 24 * 60 * 60 * 1000, secure: true, sameSite: 'none' }
 }));
 
-// Passport строго после сессий!
 app.use(passport.initialize());
 app.use(passport.session());
 
@@ -49,6 +70,8 @@ passport.use(new SteamStrategy({
 
 // ================= МАРШРУТЫ =================
 
+app.get('/api/server/status', (req, res) => res.json(serverCache));
+
 app.get('/api/auth/steam', passport.authenticate('steam'));
 
 app.get('/api/auth/steam/return', passport.authenticate('steam', { failureRedirect: '/' }), (req, res) => {
@@ -62,7 +85,6 @@ app.get('/api/user/profile', async (req, res) => {
         const sid = new SteamID(req.user.id);
         const steamIDFormatted = sid.render(); 
 
-        // Использование pool (подключения к БД)
         const [statsRows] = await pool.execute(
             'SELECT value, rank, kills, deaths, headshots FROM lr_base WHERE steam = ? LIMIT 1', 
             [steamIDFormatted]
@@ -79,7 +101,10 @@ app.get('/api/user/profile', async (req, res) => {
         res.json({
             username: req.user.displayName,
             avatar: req.user.photos?.[2]?.value || 'https://avatars.cloudflare.steamstatic.com/fef49e7fa7e1997310d705b2a6158ff8dc1cdfeb_full.jpg',
-            roles: { admin: adminRes[0].length > 0, vip: vipRes[0].length > 0 },
+            roles: { 
+                admin: adminRes[0].length > 0, 
+                vip: vipRes[0].length > 0 
+            },
             stats: {
                 kills: Number(userStats.kills) || 0,
                 deaths: Number(userStats.deaths) || 0,
