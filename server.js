@@ -96,27 +96,7 @@ app.get('/api/server/status', (req, res) => {
     res.json(req.user ? serverCache : { players: serverCache.players }); 
 });
 
-// ================= МАРШРУТЫ АВТОРИЗАЦИИ =================
-
-app.get('/api/auth/steam', passport.authenticate('steam'));
-
-app.get('/api/auth/steam/return', passport.authenticate('steam', { failureRedirect: FRONTEND_URL }), (req, res) => {
-    res.redirect(FRONTEND_URL);
-});
-
-// Базовый роут проверки авторизации
-app.get('/api/user', (req, res) => {
-    if (req.isAuthenticated() && req.user) {
-        res.json({
-            logged: true,
-            username: req.user.displayName,
-            avatar: req.user.photos && req.user.photos[2] ? req.user.photos[2].value : 'https://avatars.cloudflare.steamstatic.com/fef49e7fa7e1997310d705b2a6158ff8dc1cdfeb_full.jpg', 
-            steamId: req.user.id
-        });
-    } else {
-        res.status(401).json(null); 
-    }
-});
+// ... (все импорты и настройки оставляем как есть)
 
 // ================= ПОЛНЫЙ ПРОФИЛЬ ИЗ БАЗЫ ДАННЫХ =================
 app.get('/api/user/profile', async (req, res) => {
@@ -124,22 +104,24 @@ app.get('/api/user/profile', async (req, res) => {
         return res.status(401).json({ error: 'Не авторизован' });
     }
 
-    const steamId64 = req.user.id; // Пример: 76561198XXXXXXXXX
+    const steamId64 = req.user.id;
 
     try {
-        // 1. Ищем ранг/статистику (Пример для Levels Ranks, подправь под свои таблицы)
-        const [statsRows] = await pool.execute('SELECT * FROM lr_players WHERE steam_id = ? LIMIT 1', [steamId64]);
-        const userStats = statsRows[0] || { value: 0, rank: 1, kills: 0, deaths: 0, shoots: 0, hits: 0, headshots: 0 };
+        // Указываем конкретные поля (лучше, чем SELECT *)
+        const [statsRows] = await pool.execute(
+            'SELECT value, rank, kills, deaths, headshots FROM lr_players WHERE steam_id = ? LIMIT 1', 
+            [steamId64]
+        );
+        
+        // Безопасное получение данных
+        const userStats = statsRows[0] || { value: 0, rank: 1, kills: 0, deaths: 0, headshots: 0 };
 
-        // 2. Проверяем VIP статус (Таблица vip_users)
-        const [vipRows] = await pool.execute('SELECT * FROM vip_users WHERE steam_id = ? LIMIT 1', [steamId64]);
+        const [vipRows] = await pool.execute('SELECT 1 FROM vip_users WHERE steam_id = ? LIMIT 1', [steamId64]);
         const isVip = vipRows.length > 0;
 
-        // 3. Проверяем Админку (Таблица или колонка админов)
-        const [adminRows] = await pool.execute('SELECT * FROM admin_users WHERE steam_id = ? LIMIT 1', [steamId64]);
+        const [adminRows] = await pool.execute('SELECT 1 FROM admin_users WHERE steam_id = ? LIMIT 1', [steamId64]);
         const isAdmin = adminRows.length > 0;
 
-        // 4. Проверяем время последнего кручения рулетки на сайте
         const [rouletteRows] = await pool.execute('SELECT last_spin FROM site_users WHERE steam_id = ? LIMIT 1', [steamId64]);
         let lastSpin = rouletteRows[0] ? rouletteRows[0].last_spin : null;
 
@@ -152,28 +134,23 @@ app.get('/api/user/profile', async (req, res) => {
                 vip: isVip
             },
             stats: {
-                kills: userStats.kills || 0,
-                deaths: userStats.deaths || 0,
-                headshots: userStats.headshots || 0,
-                level: userStats.rank || 1,
-                points: userStats.value || 0
+                kills: Number(userStats.kills) || 0,
+                deaths: Number(userStats.deaths) || 0,
+                headshots: Number(userStats.headshots) || 0,
+                level: Number(userStats.rank) || 1,
+                points: Number(userStats.value) || 0 // Важно: приводим к числу
             },
             lastSpin: lastSpin
         });
 
     } catch (err) {
-        console.error('Ошибка получения данных профиля из БД:', err.message);
-        // Отдаем дефолтные структуры, если БД еще не настроена полностью
-        res.json({
-            username: req.user.displayName,
-            avatar: req.user.photos && req.user.photos[2] ? req.user.photos[2].value : '',
-            steamId: steamId64,
-            roles: { admin: false, vip: false },
-            stats: { kills: 0, deaths: 0, headshots: 0, level: 1, points: 0 },
-            lastSpin: null
-        });
+        console.error('Ошибка БД:', err.message);
+console.log('Данные из БД для пользователя:', steamId64, userStats);
+        res.status(500).json({ error: 'Ошибка сервера' });
     }
 });
+
+// ... (остальной код рулетки и слушателя остается прежним)з
 
 // ================= ЕЖЕДНЕВНАЯ РУЛЕТКА (РАЗ В 24 ЧАСА) =================
 app.post('/api/roulette/spin', async (req, res) => {
