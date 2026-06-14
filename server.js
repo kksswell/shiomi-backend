@@ -24,6 +24,10 @@ app.use(cors({
     credentials: true
 }));
 
+// 🔥 ФИКС: Включаем проксирование, чтобы Express доверял HTTPS-трафику от Render!
+// Без этого secure куки на Render просто сбрасывались браузером
+app.set('trust proxy', 1); 
+
 // Настройка сессий (cookie изменены для безопасной работы HTTPS кросс-доменно на Render)
 app.use(session({
     secret: 'shiomi_secret_key_1337',
@@ -93,7 +97,7 @@ app.get('/api/server/status', (req, res) => {
     res.json(req.user ? serverCache : { players: serverCache.players }); // Отдаем онлайн в нужном формате
 });
 
-// ================= МАРШРУТЫ АВТОРИЗАЦИИ (ДОБАВЛЕН /api/ ЧТОБЫ СОВПАДАЛО С ФРОНТЕНДОМ) =================
+// ================= МАРШРУТЫ АВТОРИЗАЦИИ =================
 
 // 1. Ссылка, куда перенаправляет кнопка "Войти через Steam"
 app.get('/api/auth/steam', passport.authenticate('steam'));
