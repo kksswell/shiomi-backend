@@ -1,0 +1,17 @@
+{
+  "name": "shiomi-backend",
+  "version": "1.0.0",
+  "description": "Backend for ShioMI CS2 Project",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "express-session": "^1.18.0",
+    "passport": "^0.7.0",
+    "passport-steam": "^1.0.17",
+    "cors": "^2.8.5",
+    "gamedig": "^5.4.1"
+  }
+}
