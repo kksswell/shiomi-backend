@@ -5,6 +5,7 @@ const SteamStrategy = require('passport-steam').Strategy;
 const cors = require('cors');
 const { GameDig } = require('gamedig');
 const mysql = require('mysql2/promise');
+const SteamID = require('steamid'); // Ключевая библиотека для конвертации ID
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -58,7 +59,7 @@ passport.use(new SteamStrategy({
     return done(null, profile);
 }));
 
-// --- ОНЛАЙН СЕРВЕРА (БЕЗОПАСНЫЙ) ---
+// --- ОНЛАЙН СЕРВЕРА ---
 let serverCache = { players: 0, maxPlayers: 32 };
 
 async function updateLiveOnline() {
@@ -77,7 +78,7 @@ async function updateLiveOnline() {
     }
 }
 updateLiveOnline();
-setInterval(updateLiveOnline, 30000); // Увеличил интервал, чтобы не спамить
+setInterval(updateLiveOnline, 30000);
 
 // ================= МАРШРУТЫ =================
 
@@ -89,13 +90,23 @@ app.get('/api/auth/steam/return', passport.authenticate('steam', { failureRedire
     res.redirect(FRONTEND_URL);
 });
 
+// Основной маршрут профиля с конвертацией ID и поиском в lr_base
 app.get('/api/user/profile', async (req, res) => {
     if (!req.isAuthenticated() || !req.user) return res.status(401).json({ error: 'Не авторизован' });
 
     try {
-        const [statsRows] = await pool.execute('SELECT value, rank, kills, deaths, headshots FROM lr_players WHERE steam_id = ? LIMIT 1', [req.user.id]);
+        // Конвертируем steamId64 в формат STEAM_1:0:12345
+        const sid = new SteamID(req.user.id);
+        const steamIDFormatted = sid.render(); 
+
+        // Ищем в правильной таблице lr_base по колонке 'steam'
+        const [statsRows] = await pool.execute(
+            'SELECT value, rank, kills, deaths, headshots FROM lr_base WHERE steam = ? LIMIT 1', 
+            [steamIDFormatted]
+        );
         const userStats = statsRows[0] || { value: 0, rank: 1, kills: 0, deaths: 0, headshots: 0 };
 
+        // Остальные таблицы проверяем по steamId64, так как там формат другой
         const [vipRows] = await pool.execute('SELECT 1 FROM vip_users WHERE steam_id = ? LIMIT 1', [req.user.id]);
         const [adminRows] = await pool.execute('SELECT 1 FROM admin_users WHERE steam_id = ? LIMIT 1', [req.user.id]);
         const [rouletteRows] = await pool.execute('SELECT last_spin FROM site_users WHERE steam_id = ? LIMIT 1', [req.user.id]);
@@ -119,6 +130,6 @@ app.get('/api/user/profile', async (req, res) => {
     }
 });
 
-// ... остальной код рулетки ...
+// ... здесь твой код рулетки ...
 
 app.listen(PORT, () => console.log(`[ShioMI] Запущен на порту ${PORT}`));
